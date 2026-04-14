@@ -145,6 +145,32 @@
       color: var(--muted);
       text-align: center;
     }
+    details.ai {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 0.75rem 1rem;
+      margin-bottom: 1.25rem;
+    }
+    details.ai summary {
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 0.95rem;
+      list-style-position: outside;
+    }
+    details.ai .ai-body { margin-top: 0.85rem; }
+    .ai-out {
+      margin-top: 0.65rem;
+      padding: 0.75rem;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 0.875rem;
+      white-space: pre-wrap;
+      min-height: 3rem;
+    }
+    .ai-out.err { border-color: #6b3030; color: #f0a0a0; }
+    .ai-status { font-size: 0.8rem; color: var(--muted); margin-top: 0.35rem; }
   </style>
 </head>
 <body>
@@ -153,6 +179,28 @@
     <p class="hint">Данные только в этом браузере (localStorage)</p>
   </header>
   <main>
+    <details class="ai" id="ai-panel">
+      <summary>ИИ-советник по задачам</summary>
+      <div class="ai-body composer" style="margin-bottom:0;border:none;padding:0;background:transparent;">
+        <p class="hint" style="margin-bottom:0.75rem;">
+          Прямой вызов OpenAI из браузера блокируется CORS. Укажите URL своего
+          <a href="https://developers.cloudflare.com/workers/" style="color:var(--accent);">Cloudflare Worker</a>
+          из папки <code style="color:var(--muted);">worker/</code> репозитория — ключ хранится только там.
+        </p>
+        <label for="ai-url">URL прокси (Worker)</label>
+        <input id="ai-url" type="url" placeholder="https://time-ai.xxx.workers.dev" autocomplete="off" />
+        <label for="ai-secret">Секрет (если задали PROXY_SECRET в Worker)</label>
+        <input id="ai-secret" type="password" placeholder="необязательно" autocomplete="off" />
+        <label for="ai-model">Модель OpenAI</label>
+        <input id="ai-model" type="text" placeholder="gpt-4o-mini" autocomplete="off" />
+        <div class="row" style="margin-bottom:0.75rem;">
+          <button type="button" id="ai-save">Сохранить настройки</button>
+          <button type="button" class="primary" id="ai-run">Рекомендации ИИ</button>
+        </div>
+        <div id="ai-out" class="ai-out" aria-live="polite"></div>
+        <p id="ai-status" class="ai-status" hidden></p>
+      </div>
+    </details>
     <section class="composer" aria-label="Новая работа">
       <label for="t-title">Название работы</label>
       <input id="t-title" type="text" placeholder="Например: лендинг для клиента" autocomplete="off" />
@@ -165,9 +213,10 @@
     <div id="tasks" class="tasks" aria-live="polite"></div>
     <p id="empty" class="empty" hidden>Добавьте первую работу — этапы можно отмечать галочками.</p>
   </main>
-  <footer>Репозиторий можно залить на GitHub и открывать index.html локально или через GitHub Pages.</footer>
+  <footer>GitHub Pages + опциональный Worker для ИИ — см. README.</footer>
   <script>
     const STORAGE_KEY = "work-track-v1";
+    const AI_SETTINGS_KEY = "work-track-ai-v1";
 
     /** @typedef {{ id: string, title: string, stages: { id: string, label: string, done: boolean }[], createdAt: number }} Task */
 
@@ -199,6 +248,166 @@
 
     /** @type {Task[]} */
     let tasks = load();
+
+    const aiUrlEl = document.getElementById("ai-url");
+    const aiSecretEl = document.getElementById("ai-secret");
+    const aiModelEl = document.getElementById("ai-model");
+    const aiSaveBtn = document.getElementById("ai-save");
+    const aiRunBtn = document.getElementById("ai-run");
+    const aiOutEl = document.getElementById("ai-out");
+    const aiStatusEl = document.getElementById("ai-status");
+
+    function loadAiSettings() {
+      try {
+        const raw = localStorage.getItem(AI_SETTINGS_KEY);
+        if (!raw) return { proxyUrl: "", proxySecret: "", model: "gpt-4o-mini" };
+        const o = JSON.parse(raw);
+        return {
+          proxyUrl: typeof o.proxyUrl === "string" ? o.proxyUrl : "",
+          proxySecret: typeof o.proxySecret === "string" ? o.proxySecret : "",
+          model: typeof o.model === "string" && o.model ? o.model : "gpt-4o-mini",
+        };
+      } catch {
+        return { proxyUrl: "", proxySecret: "", model: "gpt-4o-mini" };
+      }
+    }
+
+    function saveAiSettings(s) {
+      localStorage.setItem(AI_SETTINGS_KEY, JSON.stringify(s));
+    }
+
+    function applyAiSettingsToForm() {
+      const s = loadAiSettings();
+      aiUrlEl.value = s.proxyUrl;
+      aiSecretEl.value = s.proxySecret;
+      aiModelEl.value = s.model;
+    }
+
+    function tasksToPromptText() {
+      if (!tasks.length) return "(Пока нет работ в списке.)";
+      return tasks
+        .map((t, i) => {
+          const lines = t.stages.map(
+            (st) => `  - [${st.done ? "x" : " "}] ${st.label}`
+          );
+          return `${i + 1}. «${t.title}» (${t.stages.filter((x) => x.done).length}/${t.stages.length} этапов)\n${lines.join("\n")}`;
+        })
+        .join("\n\n");
+    }
+
+    function localHints() {
+      if (!tasks.length) {
+        return "Локально: добавьте хотя бы одну работу с этапами — тогда ИИ сможет оценить нагрузку.";
+      }
+      const parts = [];
+      const stuck = tasks.filter(
+        (t) => t.stages.length && t.stages.every((s) => !s.done)
+      );
+      if (stuck.length) {
+        parts.push(
+          `Не начаты целиком: ${stuck.length} работ — имеет смысл выбрать одну и закрыть первый маленький этап сегодня.`
+        );
+      }
+      const almost = tasks.filter(
+        (t) =>
+          t.stages.length &&
+          t.stages.some((s) => !s.done) &&
+          t.stages.filter((s) => s.done).length / t.stages.length >= 0.7
+      );
+      if (almost.length) {
+        parts.push(
+          `Почти готово (${almost.length}): добейте оставшиеся этапы пачкой, чтобы снизить «хвосты».`
+        );
+      }
+      if (!parts.length) {
+        parts.push(
+          "Локально: баланс задач выглядит нормально — попросите ИИ про приоритеты и риски, когда настроите прокси."
+        );
+      }
+      return parts.join("\n");
+    }
+
+    const SYSTEM_RU =
+      "Ты коуч по тайм-менеджменту. Пользователь ведёт список работ и этапов. " +
+      "Дай короткие практичные рекомендации на русском: приоритеты, что делать сегодня, " +
+      "как резать крупное на шаги, чего избегать. Без воды, без нумерации законов, до 12 предложений.";
+
+    applyAiSettingsToForm();
+
+    aiSaveBtn.addEventListener("click", () => {
+      saveAiSettings({
+        proxyUrl: aiUrlEl.value.trim(),
+        proxySecret: aiSecretEl.value,
+        model: aiModelEl.value.trim() || "gpt-4o-mini",
+      });
+      aiStatusEl.hidden = false;
+      aiStatusEl.textContent = "Настройки сохранены в этом браузере.";
+    });
+
+    aiRunBtn.addEventListener("click", async () => {
+      const s = loadAiSettings();
+      const url = (aiUrlEl.value.trim() || s.proxyUrl).replace(/\/$/, "");
+      const secret = aiSecretEl.value || s.proxySecret;
+      const model = (aiModelEl.value.trim() || s.model || "gpt-4o-mini").trim();
+
+      aiOutEl.classList.remove("err");
+      aiStatusEl.hidden = false;
+
+      if (!url) {
+        aiOutEl.textContent =
+          localHints() +
+          "\n\n---\nЧтобы включить ИИ: задеплойте worker/openai-proxy.js на Cloudflare, вставьте URL выше и сохраните настройки.";
+        aiStatusEl.textContent = "Прокси не задан — только локальные подсказки.";
+        return;
+      }
+
+      const userPayload =
+        "Текущие работы и этапы (крестик = сделано):\n\n" + tasksToPromptText();
+
+      aiRunBtn.disabled = true;
+      aiStatusEl.textContent = "Запрос к ИИ…";
+      aiOutEl.textContent = "";
+
+      try {
+        const headers = { "Content-Type": "application/json" };
+        if (secret) headers["X-Proxy-Secret"] = secret;
+
+        const res = await fetch(url, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            system: SYSTEM_RU,
+            prompt: userPayload,
+            model,
+          }),
+        });
+
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          aiOutEl.classList.add("err");
+          aiOutEl.textContent = data.error || res.statusText || String(res.status);
+          aiStatusEl.textContent = "Ошибка ответа прокси.";
+          return;
+        }
+        if (data.error) {
+          aiOutEl.classList.add("err");
+          aiOutEl.textContent = data.error;
+          aiStatusEl.textContent = "Ошибка.";
+          return;
+        }
+        aiOutEl.textContent = data.text || "(пустой ответ)";
+        aiStatusEl.textContent = "Готово.";
+      } catch (e) {
+        aiOutEl.classList.add("err");
+        aiOutEl.textContent =
+          (e && e.message) ||
+          String(e) ||
+          "Сеть или CORS: проверьте URL Worker и что Worker задеплоен.";
+        aiStatusEl.textContent = "Сбой запроса.";
+      } finally {
+        aiRunBtn.disabled = false;
+      }
+    });
 
     function parseStageLines(text) {
       return text
