@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Work Track — работы и этапы</title>
+  <style>
+    :root {
+      --bg: #0c0c0f;
+      --surface: #16161c;
+      --border: #2a2a34;
+      --text: #e8e6ed;
+      --muted: #8b8698;
+      --accent: #7c6cf0;
+      --accent-dim: #5a4fc9;
+      --done: #3d9a6e;
+      --warn: #c9a227;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.45;
+      min-height: 100dvh;
+      padding: 1rem 1.25rem 2rem;
+    }
+    header {
+      max-width: 720px;
+      margin: 0 auto 1.5rem;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 0.75rem;
+    }
+    h1 { font-size: 1.25rem; font-weight: 600; letter-spacing: -0.02em; }
+    .hint { font-size: 0.8125rem; color: var(--muted); }
+    main { max-width: 720px; margin: 0 auto; }
+    .composer {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1rem;
+      margin-bottom: 1.25rem;
+    }
+    .composer label {
+      display: block;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+      margin-bottom: 0.35rem;
+    }
+    .composer input[type="text"],
+    .composer textarea {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      padding: 0.55rem 0.65rem;
+      font-size: 0.9375rem;
+      margin-bottom: 0.75rem;
+    }
+    .composer textarea { min-height: 4.5rem; resize: vertical; font-family: inherit; }
+    .composer .row { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+    button {
+      font: inherit;
+      cursor: pointer;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+      padding: 0.45rem 0.85rem;
+      font-size: 0.875rem;
+    }
+    button.primary {
+      background: var(--accent);
+      border-color: var(--accent-dim);
+      color: #fff;
+    }
+    button.primary:hover { filter: brightness(1.08); }
+    button.danger { border-color: #6b3030; color: #f0a0a0; }
+    button.small { padding: 0.25rem 0.5rem; font-size: 0.75rem; }
+    .tasks { display: flex; flex-direction: column; gap: 0.75rem; }
+    .task {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 0.9rem 1rem;
+    }
+    .task-head {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      align-items: flex-start;
+      justify-content: space-between;
+      margin-bottom: 0.65rem;
+    }
+    .task-title { font-weight: 600; font-size: 1rem; flex: 1; min-width: 0; }
+    .task-meta { font-size: 0.75rem; color: var(--muted); }
+    .stages { list-style: none; margin: 0; padding: 0; }
+    .stages li {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.35rem 0;
+      border-top: 1px solid var(--border);
+      font-size: 0.9rem;
+    }
+    .stages li:first-child { border-top: none; padding-top: 0; }
+    .stages input[type="checkbox"] {
+      width: 1.05rem;
+      height: 1.05rem;
+      accent-color: var(--done);
+      flex-shrink: 0;
+    }
+    .stages li.done span { text-decoration: line-through; color: var(--muted); }
+    .add-stage {
+      margin-top: 0.5rem;
+      display: flex;
+      gap: 0.4rem;
+    }
+    .add-stage input {
+      flex: 1;
+      min-width: 0;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      padding: 0.4rem 0.55rem;
+      font-size: 0.875rem;
+    }
+    .empty {
+      text-align: center;
+      color: var(--muted);
+      padding: 2rem 1rem;
+      font-size: 0.9rem;
+    }
+    footer {
+      max-width: 720px;
+      margin: 2rem auto 0;
+      font-size: 0.75rem;
+      color: var(--muted);
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Work Track</h1>
+    <p class="hint">Данные только в этом браузере (localStorage)</p>
+  </header>
+  <main>
+    <section class="composer" aria-label="Новая работа">
+      <label for="t-title">Название работы</label>
+      <input id="t-title" type="text" placeholder="Например: лендинг для клиента" autocomplete="off" />
+      <label for="t-stages">Этапы (по одному в строке)</label>
+      <textarea id="t-stages" placeholder="Бриф&#10;Макет&#10;Вёрстка&#10;Сдача"></textarea>
+      <div class="row">
+        <button type="button" class="primary" id="btn-add">Добавить работу</button>
+      </div>
+    </section>
+    <div id="tasks" class="tasks" aria-live="polite"></div>
+    <p id="empty" class="empty" hidden>Добавьте первую работу — этапы можно отмечать галочками.</p>
+  </main>
+  <footer>Репозиторий можно залить на GitHub и открывать index.html локально или через GitHub Pages.</footer>
+  <script>
+    const STORAGE_KEY = "work-track-v1";
+
+    /** @typedef {{ id: string, title: string, stages: { id: string, label: string, done: boolean }[], createdAt: number }} Task */
+
+    function uid() {
+      return Math.random().toString(36).slice(2, 11) + Date.now().toString(36);
+    }
+
+    function load() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return [];
+        const data = JSON.parse(raw);
+        return Array.isArray(data) ? data : [];
+      } catch {
+        return [];
+      }
+    }
+
+    /** @param {Task[]} tasks */
+    function save(tasks) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
+    }
+
+    const titleEl = document.getElementById("t-title");
+    const stagesEl = document.getElementById("t-stages");
+    const btnAdd = document.getElementById("btn-add");
+    const tasksEl = document.getElementById("tasks");
+    const emptyEl = document.getElementById("empty");
+
+    /** @type {Task[]} */
+    let tasks = load();
+
+    function parseStageLines(text) {
+      return text
+        .split(/\r?\n/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+    }
+
+    function render() {
+      tasksEl.innerHTML = "";
+      emptyEl.hidden = tasks.length > 0;
+
+      tasks.forEach((task) => {
+        const card = document.createElement("article");
+        card.className = "task";
+        card.dataset.id = task.id;
+
+        const doneCount = task.stages.filter((s) => s.done).length;
+        const total = task.stages.length;
+
+        const head = document.createElement("div");
+        head.className = "task-head";
+        head.innerHTML = `
+          <div class="task-title"></div>
+          <div class="task-meta">${doneCount}/${total} этапов</div>
+          <button type="button" class="small danger" data-action="delete-task">Удалить</button>
+        `;
+        head.querySelector(".task-title").textContent = task.title;
+
+        head.querySelector('[data-action="delete-task"]').addEventListener("click", () => {
+          tasks = tasks.filter((t) => t.id !== task.id);
+          save(tasks);
+          render();
+        });
+
+        const ul = document.createElement("ul");
+        ul.className = "stages";
+
+        task.stages.forEach((stage) => {
+          const li = document.createElement("li");
+          li.dataset.stageId = stage.id;
+          if (stage.done) li.classList.add("done");
+
+          const cb = document.createElement("input");
+          cb.type = "checkbox";
+          cb.checked = stage.done;
+          cb.addEventListener("change", () => {
+            stage.done = cb.checked;
+            save(tasks);
+            render();
+          });
+
+          const span = document.createElement("span");
+          span.textContent = stage.label;
+
+          const del = document.createElement("button");
+          del.type = "button";
+          del.className = "small danger";
+          del.textContent = "×";
+          del.title = "Удалить этап";
+          del.addEventListener("click", () => {
+            task.stages = task.stages.filter((s) => s.id !== stage.id);
+            save(tasks);
+            render();
+          });
+
+          li.append(cb, span, del);
+          ul.append(li);
+        });
+
+        const addRow = document.createElement("div");
+        addRow.className = "add-stage";
+        const inp = document.createElement("input");
+        inp.type = "text";
+        inp.placeholder = "Новый этап…";
+        inp.autocomplete = "off";
+        const addBtn = document.createElement("button");
+        addBtn.type = "button";
+        addBtn.textContent = "+";
+        addBtn.addEventListener("click", () => {
+          const label = inp.value.trim();
+          if (!label) return;
+          task.stages.push({ id: uid(), label, done: false });
+          inp.value = "";
+          save(tasks);
+          render();
+        });
+        inp.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") addBtn.click();
+        });
+        addRow.append(inp, addBtn);
+
+        card.append(head, ul, addRow);
+        tasksEl.append(card);
+      });
+    }
+
+    btnAdd.addEventListener("click", () => {
+      const title = titleEl.value.trim();
+      const lines = parseStageLines(stagesEl.value);
+      if (!title) {
+        titleEl.focus();
+        return;
+      }
+      const stages = lines.length
+        ? lines.map((label) => ({ id: uid(), label, done: false }))
+        : [{ id: uid(), label: "Этап 1", done: false }];
+
+      tasks.unshift({
+        id: uid(),
+        title,
+        stages,
+        createdAt: Date.now(),
+      });
+      titleEl.value = "";
+      stagesEl.value = "";
+      save(tasks);
+      render();
+    });
+
+    render();
+  </script>
+</body>
+</html>
